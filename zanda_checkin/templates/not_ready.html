@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body_class %}kiosk{% endblock %}
+{% block body %}
+<main class="stage">
+  <section class="screen is-active">
+    <h2>Check-in isn't available right now.</h2>
+    <p class="lead">Please see reception. They'll check you in.</p>
+    <p class="hint">Staff: <a href="{{ url_for('admin_login') }}">finish setting up</a>.</p>
+  </section>
+</main>
+<script>setTimeout(() => window.location.reload(), 60000);</script>
+{% endblock %}

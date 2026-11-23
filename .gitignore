@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+# Never commit local settings: they contain the Zanda API key.
+config.json
+.zanda-checkin*/

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Set up check-in{% endblock %}
+{% block body %}
+<main class="page">
+  <p class="eyebrow">Zanda Checkin</p>
+  <h1>Connect to Zanda</h1>
+  <p class="muted">This is a one-time step for staff. The key is stored only on the computer running the check-in server, never on this iPad.</p>
+
+  {% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+
+  <form method="post" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="card">
+      <h2>1. Zanda API key</h2>
+      <p class="muted">In Zanda, the master user goes to <strong>Tools › Zanda API Key</strong>, gives the key a name (for example "Waiting room iPad"), and selects <strong>Generate API Key</strong>. Copy it straight away: Zanda only shows it once.</p>
+      <label for="api_key">API key</label>
+      <input id="api_key" name="api_key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      <label for="region">Zanda region</label>
+      <select id="region" name="region">
+        {% for code, url in regions.items() %}
+          <option value="{{ code }}" {% if form.get('region') == code %}selected{% endif %}>{{ {'au': 'Australia', 'us': 'United States', 'uk': 'United Kingdom'}[code] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="card">
+      <h2>2. Your practice</h2>
+      <label for="practice_name">Practice name <small>Shown on the welcome screen. Optional.</small></label>
+      <input id="practice_name" name="practice_name" maxlength="80" value="{{ form.get('practice_name', '') }}">
+    </div>
+
+    <div class="card">
+      <h2>3. Staff PIN</h2>
+      <p class="muted">Used to open these settings from the kiosk later (tap the top-right corner five times).</p>
+      <div class="row">
+        <div><label for="pin">PIN <small>4 to 8 digits</small></label>
+          <input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" required></div>
+        <div><label for="pin2">PIN again <small>&nbsp;</small></label>
+          <input id="pin2" name="pin2" type="password" inputmode="numeric" pattern="[0-9]{4,8}" required></div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Connect</button>
+  </form>
+</main>
+{% endblock %}

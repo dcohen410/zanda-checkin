@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block body_class %}kiosk{% endblock %}
+{% block body %}
+<main class="stage" aria-live="polite">
+
+  <!-- 1. Welcome -->
+  <section class="screen is-active" data-screen="welcome">
+    <p class="eyebrow">{{ cfg.practice_name or "Welcome" }}</p>
+    <h1>Hello, welcome in.</h1>
+    <p class="lead">Let us know you're here for your appointment.</p>
+    <button class="btn btn-primary btn-xl" data-go="dob">Check in</button>
+    <p class="hint">Rather talk to a person? Reception is always happy to help.</p>
+  </section>
+
+  <!-- 2. Date of birth -->
+  <section class="screen" data-screen="dob">
+    <h2>What's your date of birth?</h2>
+    <p class="lead">If you're checking in for someone else, use their date of birth.</p>
+    <div class="dob" aria-label="Date of birth">
+      <div class="dob-part"><span class="dob-digits" data-part="0">DD</span><small>Day</small></div>
+      <span class="dob-sep">/</span>
+      <div class="dob-part"><span class="dob-digits" data-part="1">MM</span><small>Month</small></div>
+      <span class="dob-sep">/</span>
+      <div class="dob-part dob-year"><span class="dob-digits" data-part="2">YYYY</span><small>Year</small></div>
+    </div>
+    <p class="error" data-dob-error hidden>That doesn't look like a date. Please check and try again.</p>
+    <div class="keypad" role="group" aria-label="Number keypad">
+      {% for n in [1,2,3,4,5,6,7,8,9] %}<button class="key" data-key="{{ n }}">{{ n }}</button>{% endfor %}
+      <button class="key key-muted" data-key="clear">Clear</button>
+      <button class="key" data-key="0">0</button>
+      <button class="key key-muted" data-key="back" aria-label="Delete">&#9003;</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-go="welcome">Back</button>
+      <button class="btn btn-primary" data-submit-dob disabled>Next</button>
+    </div>
+  </section>
+
+  <!-- 3. Is this you? -->
+  <section class="screen" data-screen="confirm">
+    <h2>Hi <span data-first-name></span>, is this you?</h2>
+    <dl class="appt">
+      <div><dt>Seeing</dt><dd data-practitioner></dd></div>
+      <div><dt>At</dt><dd data-time></dd></div>
+    </dl>
+    <div class="actions actions-stack">
+      <button class="btn btn-primary btn-xl" data-confirm>Yes, that's me</button>
+      <button class="btn btn-ghost" data-not-me>No, that's not me</button>
+    </div>
+  </section>
+
+  <!-- 4. Done -->
+  <section class="screen" data-screen="done">
+    <div class="tick" aria-hidden="true">&#10003;</div>
+    <h2>Thanks, <span data-first-name></span>. You're checked in.</h2>
+    <p class="lead" data-done-message>Take a seat and make yourself comfortable. Your clinician will come and get you.</p>
+  </section>
+
+  <!-- 5. Reception -->
+  <section class="screen" data-screen="reception">
+    <h2>Please see reception.</h2>
+    <p class="lead">They'll check you in. It only takes a moment.</p>
+    <button class="btn btn-ghost" data-go="welcome">Done</button>
+  </section>
+
+  <!-- Working -->
+  <section class="screen" data-screen="working">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="lead">One moment&hellip;</p>
+  </section>
+</main>
+
+<button class="staff-corner" aria-label="Staff settings" data-staff></button>
+<script src="{{ url_for('static', filename='kiosk.js') }}?v={{ app_version }}"></script>
+{% endblock %}
