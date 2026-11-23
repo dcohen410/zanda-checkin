@@ -1,0 +1,24 @@
+{% extends "portal.html" %}
+{% block title %}Add a site{% endblock %}
+{% block content %}
+<h1>Add a site</h1>
+<form method="post" action="/admin/sites/new" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+  <div class="card">
+    <label for="name">Site name <small>For example the clinic's suburb. Staff see this, clients don't.</small></label>
+    <input id="name" name="name" maxlength="120" value="{{ form.name or '' }}" required>
+  </div>
+  <div class="card">
+    <h2>Zanda API key</h2>
+    <p class="muted">In Zanda, the master user goes to <strong>Tools › Zanda API Key</strong>, names the key (for example "Zanda Checkin") and selects <strong>Generate API Key</strong>. Copy it straight away: Zanda only shows it once.</p>
+    <p class="muted">We encrypt the key and only use it to read today's appointments at your chosen location, look up the matching client's name and date of birth, and mark the appointment Arrived. We never read notes or forms.</p>
+    <label for="api_key">API key</label>
+    <input id="api_key" name="api_key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+    <label for="region">Zanda region</label>
+    <select id="region" name="region">
+      {% for code, label in regions.items() %}<option value="{{ code }}" {% if form.region == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="btn btn-primary" type="submit">Connect to Zanda</button>
+</form>
+{% endblock %}

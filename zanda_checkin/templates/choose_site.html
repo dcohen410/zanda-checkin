@@ -1,0 +1,21 @@
+{% extends "portal.html" %}
+{% block title %}Choose a site{% endblock %}
+{% block content %}
+<h1>Which waiting room is this iPad in?</h1>
+{% if not sites %}
+  <div class="notice notice-error">This practice has no sites yet. Add one in the admin portal first.</div>
+{% else %}
+<form method="post" action="/checkin/choose-site" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+  {% for s in sites %}
+  <label class="check">
+    <input type="radio" name="site_id" value="{{ s.id }}" {% if loop.first %}checked{% endif %} {% if not s.is_ready %}disabled{% endif %}>
+    <span>{{ s.name }} <small>{{ s.location_name or "Needs setup in the admin portal" }}</small></span>
+  </label>
+  {% endfor %}
+  <label for="device_name">Name this iPad <small>So you can spot it in the admin portal.</small></label>
+  <input id="device_name" name="device_name" maxlength="120" value="Waiting room iPad">
+  <button class="btn btn-primary" type="submit">Start check-in</button>
+</form>
+{% endif %}
+{% endblock %}

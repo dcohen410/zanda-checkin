@@ -138,3 +138,18 @@ def test_zanda_error_on_mark_arrived_propagates():
     res = svc.lookup(date(1990, 2, 1))
     with pytest.raises(ZandaError):
         svc.confirm(res.token)
+
+
+def test_surname_initial_filters_matches():
+    _, svc = make()
+    assert svc.lookup(date(1990, 2, 1), "n").status == "match"
+    assert svc.lookup(date(1990, 2, 1), "X").status == "reception"
+
+
+def test_notify_only_does_not_patch_zanda():
+    client, svc = make(mark_arrived=False)
+    events = []
+    svc.listeners.append(events.append)
+    svc.confirm(svc.lookup(date(1990, 2, 1)).token)
+    assert not [c for c in client.calls if c[0] == "mark_arrived"]
+    assert events[0].zanda_updated is False

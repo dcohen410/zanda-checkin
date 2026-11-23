@@ -1,0 +1,29 @@
+# Builds the desktop notifier installers. Run it from the Actions tab, or push a tag like desktop-v0.2.0.
+# The builds are unsigned: macOS will ask users to right-click › Open the first time, and Windows
+# SmartScreen will warn. Add signing certificates (CSC_LINK etc.) before giving it to practices.
+name: Desktop app
+on:
+  workflow_dispatch:
+  push: { tags: ["desktop-v*"] }
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, target: dist:mac }
+          - { os: windows-latest, target: dist:win }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { working-directory: desktop } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install
+      - run: npm run ${{ matrix.target }} -- --publish never
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zanda-checkin-${{ matrix.os }}
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.exe

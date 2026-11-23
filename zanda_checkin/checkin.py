@@ -62,6 +62,7 @@ class CheckinEvent:
     practitioner: str
     starts_at: datetime
     see_reception: bool
+    zanda_updated: bool = True  # False in notify-only mode: staff should mark Arrived
 
 
 @dataclass
@@ -94,6 +95,7 @@ def parse_dob(text: str) -> date | None:
 class CheckinService:
     def __init__(self, client: ZandaClient, *, location_id: int, time_zone: str,
                  minutes_early: int = 90, minutes_late: int = 30, reception_flag: str = "",
+                 mark_arrived: bool = True,
                  now: Callable[[], datetime] | None = None):
         self.client = client
         self.location_id = location_id
@@ -101,6 +103,8 @@ class CheckinService:
         self.minutes_early = minutes_early
         self.minutes_late = minutes_late
         self.reception_flag = (reception_flag or "").strip().lower()
+        # False = "notify only": staff are told, but Zanda isn't changed.
+        self.mark_arrived = mark_arrived
         self._now = now or (lambda: datetime.now(self.tz))
         self._lock = threading.Lock()
         self._appointments: tuple[float, list[dict]] | None = None
@@ -176,7 +180,9 @@ class CheckinService:
         return clock.monotonic() < self._locked_until
 
     # -- public API ----------------------------------------------------------
-    def lookup(self, dob: date) -> LookupResult:
+    def lookup(self, dob: date, surname_initial: str | None = None) -> LookupResult:
+        """`surname_initial`, when given, must also match (sites can require it)."""
+        initial = (surname_initial or "").strip()[:1].upper() or None
         if self.locked:
             return LookupResult("reception", reason="locked")
         now = self._now()
@@ -190,6 +196,8 @@ class CheckinService:
                 if cid is None:
                     continue
                 profile = self._profile(int(cid))
+                if initial and profile["last_initial"] != initial:
+                    continue
                 if profile["dob"] and profile["dob"][:10] == dob.isoformat():
                     flag = (appt.get("flag") or "").strip().lower()
                     matches.append(Candidate(
@@ -218,12 +226,13 @@ class CheckinService:
         if not entry or clock.monotonic() - entry[0] > TOKEN_TTL:
             return None
         cand = entry[1]
-        if not cand.already_arrived:
+        if self.mark_arrived and not cand.already_arrived:
             self.client.mark_arrived(cand.appointment_id)
         with self._lock:
             self._appointments = None  # refresh next time so states are current
         label = f"{cand.first_name} {cand.last_initial}." if cand.last_initial else cand.first_name
-        event = CheckinEvent(label, cand.practitioner, cand.starts_at, cand.see_reception)
+        event = CheckinEvent(label, cand.practitioner, cand.starts_at, cand.see_reception,
+                             zanda_updated=self.mark_arrived or cand.already_arrived)
         for listener in self.listeners:
             try:
                 listener(event)

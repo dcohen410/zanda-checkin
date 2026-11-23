@@ -1,0 +1,84 @@
+{% extends "portal.html" %}
+{% block title %}{{ site.name }}{% endblock %}
+{% block content %}
+<p class="eyebrow"><a href="/admin">Sites</a></p>
+<h1>{{ site.name }}</h1>
+<p class="muted">
+  {{ "Ready for check-ins." if site.is_ready else "Choose a location to start checking people in." }}
+  {{ notifiers }} desktop app{{ "" if notifiers == 1 else "s" }} listening now.
+</p>
+
+<form method="post" action="/admin/sites/{{ site.id }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+  <div class="card">
+    <h2>Basics</h2>
+    <label for="name">Site name</label>
+    <input id="name" name="name" maxlength="120" value="{{ site.name }}" required>
+    <label for="welcome_name">Welcome screen heading <small>Shown to clients. Leave blank to use your practice name.</small></label>
+    <input id="welcome_name" name="welcome_name" maxlength="120" value="{{ site.welcome_name }}">
+    <label for="location_id">Zanda location <small>Only appointments at this location can check in here.</small></label>
+    <select id="location_id" name="location_id">
+      <option value="">Choose a location…</option>
+      {% for loc in locations %}
+        <option value="{{ loc.id }}" {% if site.location_id|string == loc.id|string %}selected{% endif %}>{{ loc.name }}{% if loc.serviceModality and loc.serviceModality != 'In Person' %} ({{ loc.serviceModality }}){% endif %}</option>
+      {% endfor %}
+      {% if site.location_id and not locations %}<option value="{{ site.location_id }}" selected>{{ site.location_name or site.location_id }}</option>{% endif %}
+    </select>
+    <input type="hidden" name="location_name" value="{{ site.location_name }}">
+    <label for="time_zone">Time zone</label>
+    <select id="time_zone" name="time_zone">
+      {% for tz in time_zones %}<option value="{{ tz }}" {% if site.time_zone == tz %}selected{% endif %}>{{ tz.replace('_', ' ') }}</option>{% endfor %}
+      {% if site.time_zone not in time_zones %}<option value="{{ site.time_zone }}" selected>{{ site.time_zone }}</option>{% endif %}
+    </select>
+  </div>
+
+  <div class="card">
+    <h2>Check-in</h2>
+    <div class="row">
+      <div><label for="minutes_early">Up to (minutes) early</label>
+        <input id="minutes_early" name="minutes_early" type="number" min="0" max="240" value="{{ site.minutes_early }}"></div>
+      <div><label for="minutes_late">Up to (minutes) late</label>
+        <input id="minutes_late" name="minutes_late" type="number" min="0" max="120" value="{{ site.minutes_late }}"></div>
+    </div>
+    <label class="check"><input type="checkbox" name="require_surname_initial" {% if site.require_surname_initial %}checked{% endif %}>
+      <span>Also ask for the first letter of the surname <small>One extra tap. Recommended for larger practices or where family members are seen.</small></span></label>
+    <label class="check"><input type="checkbox" name="show_clinician" {% if site.show_clinician %}checked{% endif %}>
+      <span>Show the clinician's name on "Is this you?" <small>Others in the waiting room may see the screen.</small></span></label>
+    <label class="check"><input type="checkbox" name="mark_arrived" {% if site.mark_arrived %}checked{% endif %}>
+      <span>Mark the appointment Arrived in Zanda <small>Turn off for notify-only: staff get the notification and mark Arrived themselves.</small></span></label>
+  </div>
+
+  <div class="card">
+    <h2>Send to reception</h2>
+    <label for="reception_flag">Appointment flag <small>When reception gives an appointment this flag in Zanda, the client still checks in but is asked to see reception afterwards.</small></label>
+    <select id="reception_flag" name="reception_flag">
+      <option value="">Off</option>
+      {% for f in flags %}<option value="{{ f.name }}" {% if site.reception_flag == f.name %}selected{% endif %}>{{ f.name }}</option>{% endfor %}
+      {% if site.reception_flag and not flags %}<option value="{{ site.reception_flag }}" selected>{{ site.reception_flag }}</option>{% endif %}
+    </select>
+  </div>
+  <button class="btn btn-primary" type="submit">Save</button>
+</form>
+
+<div class="card">
+  <h2>Zanda API key</h2>
+  <p class="muted">Stored encrypted. Ends in <code>…{{ site.zanda_key_hint }}</code> · Region {{ site.zanda_region|upper }}</p>
+  <form method="post" action="/admin/sites/{{ site.id }}/key" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+    <label for="api_key">Replace with a new key</label>
+    <input id="api_key" name="api_key" type="password" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="btn btn-ghost" type="submit">Replace key</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Delete site</h2>
+  <p class="muted">Removes the stored key and signs out this site's iPads. Also revoke the key in Zanda (Tools › Zanda API Key › Revoke).</p>
+  <form method="post" action="/admin/sites/{{ site.id }}/delete" data-confirm="Delete this site? This can't be undone.">
+    <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+    <label for="confirm_name">Type <strong>{{ site.name }}</strong> to confirm</label>
+    <input id="confirm_name" name="confirm_name" autocomplete="off">
+    <button class="btn btn-danger" type="submit">Delete site</button>
+  </form>
+</div>
+{% endblock %}

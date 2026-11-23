@@ -2,17 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Check in">
-  <meta name="format-detection" content="telephone=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover{% block viewport_extra %}{% endblock %}">
   <meta name="theme-color" content="#f6f3ee">
-  <link rel="manifest" href="{{ url_for('manifest') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-180.png') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ app_version }}">
-  <title>{% block title %}Check in{% endblock %}</title>
+  <meta name="format-detection" content="telephone=no">
+  {% block head %}{% endblock %}
+  <link rel="icon" href="/static/icon-180.png">
+  <link rel="stylesheet" href="/static/app.css?v={{ app_version }}">
+  <title>{% block title %}Zanda Checkin{% endblock %}</title>
 </head>
 <body class="{% block body_class %}{% endblock %}">
 {% block body %}{% endblock %}

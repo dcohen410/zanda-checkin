@@ -1,11 +1,21 @@
 {% extends "base.html" %}
+{% block viewport_extra %}, maximum-scale=1, user-scalable=no{% endblock %}
+{% block head %}
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Check in">
+  <link rel="manifest" href="/checkin/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+{% endblock %}
+{% block title %}Check in{% endblock %}
 {% block body_class %}kiosk{% endblock %}
 {% block body %}
-<main class="stage" aria-live="polite">
+<main class="stage" aria-live="polite" data-need-initial="{{ 'yes' if site.require_surname_initial else 'no' }}">
 
   <!-- 1. Welcome -->
   <section class="screen is-active" data-screen="welcome">
-    <p class="eyebrow">{{ cfg.practice_name or "Welcome" }}</p>
+    <p class="eyebrow">{{ welcome }}</p>
     <h1>Hello, welcome in.</h1>
     <p class="lead">Let us know you're here for your appointment.</p>
     <button class="btn btn-primary btn-xl" data-go="dob">Check in</button>
@@ -36,11 +46,23 @@
     </div>
   </section>
 
+  <!-- 2b. Surname initial (only when the site asks for it) -->
+  <section class="screen" data-screen="initial">
+    <h2>What's the first letter of your surname?</h2>
+    <p class="lead">Your family name.</p>
+    <div class="letters" role="group" aria-label="Letters">
+      {% for l in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}<button class="key" data-letter="{{ l }}">{{ l }}</button>{% endfor %}
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-go="dob">Back</button>
+    </div>
+  </section>
+
   <!-- 3. Is this you? -->
   <section class="screen" data-screen="confirm">
     <h2>Hi <span data-first-name></span>, is this you?</h2>
     <dl class="appt">
-      <div><dt>Seeing</dt><dd data-practitioner></dd></div>
+      <div data-practitioner-row><dt>Seeing</dt><dd data-practitioner></dd></div>
       <div><dt>At</dt><dd data-time></dd></div>
     </dl>
     <div class="actions actions-stack">
@@ -70,6 +92,6 @@
   </section>
 </main>
 
-<button class="staff-corner" aria-label="Staff settings" data-staff></button>
-<script src="{{ url_for('static', filename='kiosk.js') }}?v={{ app_version }}"></script>
+<button class="staff-corner" aria-label="Staff: sign this iPad out" data-staff></button>
+<script src="/static/kiosk.js?v={{ app_version }}"></script>
 {% endblock %}

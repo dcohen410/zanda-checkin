@@ -1,0 +1,18 @@
+{% extends "portal.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="muted">{{ intro }}</p>
+<form method="post" action="{{ action }}" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" value="{{ email }}" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <div class="link-row">
+    <button class="btn btn-primary" type="submit">Sign in</button>
+    {% if back %}<a class="btn btn-ghost" href="{{ back }}">Cancel</a>{% endif %}
+  </div>
+</form>
+{% if action == "/login" %}<p class="muted">New practice? <a href="/signup">Create an account</a>.</p>{% endif %}
+{% endblock %}

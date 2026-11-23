@@ -155,3 +155,41 @@ input:focus, select:focus { outline: none; border-color: var(--accent); box-shad
 .page .btn { margin-top: 20px; }
 .inline-form { display: inline; }
 .link-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* --- Portal chrome --------------------------------------------------------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px max(20px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.brand { font-weight: 700; color: var(--ink); text-decoration: none; }
+.topbar nav { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.topbar nav a, .linklike { color: var(--accent); text-decoration: none; font-weight: 600; }
+.linklike { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.linklike.danger { color: var(--danger); }
+a { color: var(--accent); }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.eyebrow a { color: inherit; text-decoration: none; }
+code { background: var(--accent-soft); padding: 2px 6px; border-radius: 6px; font-size: .92em; word-break: break-all; }
+.list { padding: 6px 0; }
+.list-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 24px;
+  color: var(--ink); text-decoration: none; border-top: 1px solid var(--line); }
+.list-row:first-child { border-top: 0; }
+.list-row:hover { background: var(--bg); }
+.pill { font-size: .85rem; font-weight: 600; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+.pill-ok { background: var(--accent-soft); color: var(--accent); }
+.pill-warn { background: #fbecd2; color: #8a5a12; }
+.table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.table th, .table td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.table th { color: var(--muted); font-weight: 600; border-top: 0; }
+.steps { padding-left: 1.2em; margin: 0; } .steps li { margin: 8px 0; }
+.activity { list-style: none; padding: 0; margin: 0; } .activity li { padding: 6px 0; border-top: 1px solid var(--line); }
+.activity li:first-child { border-top: 0; }
+label.check { display: flex; gap: 12px; align-items: flex-start; font-weight: 600; margin: 18px 0 0; cursor: pointer; }
+label.check input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; } .table { font-size: .85rem; } }
+
+/* --- Surname letter grid (kiosk) ------------------------------------------ */
+.letters { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; width: min(100%, 640px); margin-top: 10px; }
+.letters .key { height: 68px; font-size: 1.7rem; }
+@media (max-height: 820px) { .letters .key { height: 58px; } }
+[hidden] { display: none !important; }

@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
-# Never commit local settings: they contain the Zanda API key.
-config.json
-.zanda-checkin*/
+# Local data: database and auto-generated keys.
+data/
+*.db
+secret_key
+encryption_key
+.env
+desktop/node_modules/
+desktop/dist/

@@ -1,92 +1,150 @@
 # Zanda Checkin
 
-A waiting-room check-in kiosk for practices that use [Zanda](https://zandahealth.com). Clients tap **Check in** on an iPad and enter their date of birth. They confirm their first name, clinician and appointment time, and the appointment is marked **Arrived** in Zanda. Anyone who can't be matched is asked to see reception.
+Waiting-room check-in as a service for practices that use [Zanda](https://zandahealth.com).
 
-> Not affiliated with or endorsed by Zanda Health. It uses the Zanda public API, which is **in beta** and currently only open to practices in Zanda's beta group. Endpoints may change before general release.
+- **Admin portal:** a practice creates an account, adds a *site* for each waiting room and pastes in that site's Zanda API key.
+- **Check-in portal:** an iPad signs in once with the practice account and becomes a full-screen kiosk. Clients enter their date of birth, confirm "Hi Alex, is this you?", and the appointment is marked **Arrived** in Zanda. Anyone who can't be matched is asked to see reception.
+- **Desktop app (Mac and Windows):** reception and clinicians sign in, choose a site, and get a pop-up such as "Alex N. has arrived for Sam Rivera" the moment someone checks in.
 
-## How it works
+It runs as a single container, either locally or in the cloud.
+
+> Not affiliated with or endorsed by Zanda Health. It uses the Zanda public API, which is **in beta**. Zanda's support site still describes the API as read-only. If marking an appointment Arrived isn't available on your account, switch the site to **notify-only**: staff get the desktop notification and mark Arrived in Zanda themselves.
+
+## How it fits together
 
 ```
- iPad (Home Screen web app)  ──LAN──▶  Check-in server (a Mac in the office)  ──HTTPS──▶  Zanda API
-   welcome · DOB keypad ·               holds the API key, finds the                       GET appointments
-   confirm · done / reception           appointment, marks it Arrived                      GET client profile
-                                                                                            PATCH appointment
+ iPad (Home Screen web app) ──HTTPS──┐
+                                     ├──▶  Zanda Checkin container  ──HTTPS──▶  Zanda API
+ Admin portal (any browser) ─HTTPS───┤      FastAPI · SQLite/Postgres          (per-site API key,
+                                     │      encrypted keys · live events        encrypted at rest)
+ Desktop app (Mac/Windows) ◀─HTTPS───┘      (Server-Sent Events)
 ```
 
-- **The iPad never holds the API key.** It's a thin full-screen web app. The key lives only on the server computer, in `~/.zanda-checkin/config.json` (owner-only permissions).
-- **Why a server at all?** A Zanda key can read the whole practice, including clinical notes. Keeping it off a device in a public waiting room matters. The server is also the hub for the planned reception notifications (see the roadmap below).
-- **Allow-listed API use.** [`zanda.py`](zanda_checkin/zanda.py) wraps only the five endpoints the kiosk needs. It never calls notes, forms, invoices or payments.
+| Part | Path | Signs in with | Can do |
+|---|---|---|---|
+| Admin portal | `/admin` | Practice account (session cookie) | Manage sites, API keys, devices; view activity |
+| Check-in portal | `/checkin` | Practice account, once. The iPad then holds a kiosk-only token. | Look up and confirm check-ins for **its one site**. Can't open the admin portal. |
+| Desktop app | `/api/v1` | Practice account. The app then holds a notifier-only token in the OS keychain. | List sites and receive live check-ins |
+
+Every iPad and desktop app shows in the admin portal under **Signed-in devices**, and can be signed out from there.
 
 ## Identifying the client
 
-The aim is as little typing as possible, but no guessing:
+1. The client enters their **date of birth** on a big on-screen keypad (DD/MM/YYYY). If the site requires it, they then tap the **first letter of their surname**.
+2. Matching only uses **today's one-to-one appointments at the site's Zanda location** that start up to *90 minutes from now* or *30 minutes ago*. These limits are adjustable, and the appointment must be Pending, Confirmed or Arrived.
+3. **Exactly one match** shows "Hi [preferred name], is this you?" with the time, plus the clinician's name unless the site hides it.
+4. **No match, or more than one**, shows "Please see reception." The kiosk never guesses and never says why.
 
-1. The client enters their **date of birth** on a big on-screen keypad (DD/MM/YYYY).
-2. The server looks only at **today's appointments at this kiosk's location** that start between *90 minutes from now* and *30 minutes ago* (adjustable). It only considers one-to-one client appointments that are Pending, Confirmed or already Arrived.
-3. **Exactly one match** shows "Hi Alex, is this you?" with their clinician and time. Their preferred name is used if Zanda has one.
-4. **No match, or more than one**, shows "Please see reception." The kiosk never guesses, and never says why.
-5. **Yes, that's me** sets `attendanceState` to `Arrived` in Zanda. **No, that's not me** goes to reception.
+**Safeguards**
+- Screens time out back to the start.
+- Confirming needs a single-use, two-minute token.
+- Repeated misses lock the kiosk to "see reception" for 5 minutes.
+- No client details are stored, logged or sent anywhere except the live notification.
 
-In a two-hour window at one location, a date of birth is close to unique. The confirmation screen is the second check. Other safeguards:
-- Every screen times out back to the start.
-- The confirm step uses a single-use, two-minute token, so the iPad can't mark any other appointment.
-- After 6 unmatched attempts in 10 minutes, everyone goes to reception for 5 minutes.
-- Nothing about clients is written to disk or logs.
+## Site settings
 
-**Sent to reception on purpose:**
-- group appointments
-- telehealth locations (choose your in-person location)
-- cancelled or completed appointments
-- shared dates of birth
+- **Zanda location** and **time zone**.
+- **Check-in window**: minutes early and minutes late.
+- **Ask for surname initial**: one extra tap for a much stronger match.
+- **Show clinician name**: turn off if your waiting room is busy.
+- **Mark Arrived in Zanda**: turn off for notify-only mode.
+- **Send to reception flag**: choose a Zanda appointment flag. Clients whose appointment has it still check in, but are asked to see reception afterwards.
 
-### Reception flag
+## Run it
 
-In settings, choose a Zanda **appointment flag** (for example "See reception"). When reception puts that flag on an appointment in Zanda, the client still checks in, but the done screen asks them to see reception before taking a seat.
-
-## Setup
-
-**You need:** a Mac (or any computer with Python 3.11+) that stays on in the office, an iPad on the same Wi-Fi, and a Zanda API key. To make a key in Zanda, the master user goes to Tools › Zanda API Key, selects Generate, and copies the key (it's shown once).
+### Locally with Docker
 
 ```bash
-git clone https://github.com/dcohen410/zanda-checkin.git
-cd zanda-checkin
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m zanda_checkin
+docker compose up --build
 ```
 
-The server prints the address to open on the iPad, for example `http://192.168.1.20:8080/`.
+Open http://localhost:8000, create an account and add a site.
 
-1. **On the iPad**, open that address in Safari. Paste the API key, choose your region, and set a staff PIN.
-   - Tip: do this step on the server Mac at `http://localhost:8080/setup` instead, so the key never crosses the Wi-Fi.
-2. Choose the kiosk's **location** if you have more than one, plus the optional reception flag.
-3. In Safari, choose **Share › Add to Home Screen** and open it from the icon. It runs full screen with no address bar.
-4. Lock the iPad to the app:
-   - Turn on **Settings › Accessibility › Guided Access** and triple-click to start it.
-   - Set **Settings › Display & Brightness › Auto-Lock** to Never.
-   - Keep the iPad on charge.
-5. **Staff settings:** tap the top-right corner of the kiosk 5 times, then enter the PIN.
-
-**Keep the server running:** use a Login Item or `launchd` on the Mac, and stop the Mac from sleeping (System Settings › Energy). Give the Mac a fixed IP address (a DHCP reservation on your router) so the iPad's address doesn't change.
-
-### Try it without a key
+To try it without a Zanda key:
 
 ```bash
-ZANDA_CHECKIN_DEMO=1 .venv/bin/python -m zanda_checkin
+ZANDA_CHECKIN_DEMO=1 docker compose up --build
 ```
 
-Demo mode uses made-up appointments, and any API key works. Try these dates of birth:
+Any API key works in demo mode. Try these dates of birth:
 - `01021990`: a normal match
-- `15061985`: flagged for reception
-- `03032001`: a shared date of birth, so it goes to reception
+- `15061985`: an appointment flagged "See reception"
+- `03032001`: two people share it, so it goes to reception
 - `09091999`: no match
 
-## Security notes
+### In the cloud
 
-- The traffic between the iPad and the server is plain HTTP on your local network. Keep the kiosk on a trusted staff Wi-Fi, not guest Wi-Fi.
-- The settings pages need the staff PIN. They lock after 5 wrong tries and log out after 15 minutes.
-- **Remove API key** in settings deletes it from the server. Also revoke it in Zanda (Tools › Zanda API Key › Revoke).
-- Zanda keys have no per-resource permissions yet, so treat the server Mac as holding access to your whole Zanda account. Keep it updated and behind its own login.
+The image runs anywhere that runs containers, such as Fly.io, Render, Azure Container Apps, AWS App Runner/ECS or a VPS. Pick an **Australian region** for Australian practices.
+
+- Put it behind **HTTPS**. Most platforms do this for you; otherwise use Caddy or Traefik.
+- Run **one instance**. Live notifications are broadcast in memory; see the scaling notes below.
+- Mount a persistent volume at `/data` (SQLite), or set `DATABASE_URL` to Postgres.
+
+| Variable | Purpose |
+|---|---|
+| `PUBLIC_URL` | e.g. `https://checkin.example.com`. Turns on secure cookies and HSTS. |
+| `ENCRYPTION_KEY` | Fernet key that encrypts stored Zanda API keys. **Set it and back it up**: if it's lost, every stored key is unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `SECRET_KEY` | Signs session cookies. Any long random string. |
+| `DATABASE_URL` | Default: SQLite in `/data`. Postgres: `postgresql+psycopg://user:pass@host/db` |
+| `SIGNUP_CODE` | If set, new practices need this code to sign up (invite-only). |
+| `FORWARDED_ALLOW_IPS` | Your reverse proxy's IP, so client IPs (used for sign-in rate limits) are read correctly. |
+| `ZANDA_CHECKIN_DEMO` | `1` uses pretend Zanda data. |
+
+If `SECRET_KEY` or `ENCRYPTION_KEY` aren't set, they're generated into `/data` on first start. That's fine locally, but set them explicitly in production.
+
+### Without Docker
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m zanda_checkin --port 8000
+```
+
+## Setting up a practice
+
+1. Go to `/signup` and create the practice account.
+2. Add a site: name it, then paste the **Zanda API key**. In Zanda, the master user goes to Tools › Zanda API Key › Generate and copies the key (it's shown only once). If the practice has only one in-person location, it's picked automatically.
+3. **iPad:**
+   - Open `https://your-server/checkin` in Safari, sign in and choose the site.
+   - Choose **Share › Add to Home Screen** and open it from the icon.
+   - Lock it with Settings › Accessibility › **Guided Access**, set Auto-Lock to Never, and keep it on charge.
+   - To sign the iPad out later, tap the top-right corner 5 times and sign in.
+4. **Desktop app:**
+   - Install it on reception and clinician computers.
+   - Enter the server address, sign in, and choose the site.
+   - It lives in the menu bar (Mac) or system tray (Windows), can open at login, and has a "Send a test notification" item.
+
+## Desktop app
+
+The source is in [`desktop/`](desktop), built with Electron.
+- The sign-in token is encrypted with the OS keychain (`safeStorage`).
+- The app listens with Server-Sent Events and reconnects with backoff.
+- It refuses non-HTTPS servers, except `localhost`.
+
+```bash
+cd desktop
+npm install
+npm start        # run it
+npm test         # SSE parser tests
+```
+
+Installers are built by GitHub Actions. Run the **Desktop app** workflow, or push a tag such as `desktop-v0.2.0`. It produces a `.dmg` (universal) and a Windows `.exe`. These builds are **unsigned**: sign them (an Apple Developer ID plus notarisation, and a Windows code-signing certificate) before giving them to practices.
+
+## Security and privacy
+
+A Zanda API key can read the whole practice, including clinical notes. Treat this service as holding health information.
+
+- **API keys** are encrypted at rest (Fernet). They are never shown again after saving (only the last 4 characters) and never sent to iPads or desktop apps.
+- **Zanda access is allow-listed in code.** [`zanda.py`](zanda_checkin/zanda.py) wraps only:
+  - `GET /locations`
+  - `GET /appointment-flags`
+  - `GET /appointments`
+  - `GET /client-profiles/{id}`
+  - `PATCH /appointments/{id}` (to set Arrived)
+- **Passwords** are hashed with scrypt.
+- **Device tokens** are stored only as SHA-256 hashes and can be revoked.
+- **Sign-in** is rate-limited, forms have CSRF protection, and a strict Content-Security-Policy is set.
+- **Data kept:** practice accounts, site settings, devices, an audit log of admin actions, and a count of check-in outcomes. No client names, dates of birth or appointment details are stored. Client first names and last initials pass through only in the live notification.
+- **Before offering this to other practices**, work through your obligations under the Privacy Act 1988, including APP 8 (cross-border disclosure), APP 11 (security) and the Notifiable Data Breaches scheme. You'll also need a privacy policy and data-processing terms. Get proper legal advice; this README isn't that.
 
 ## Development
 
@@ -95,20 +153,33 @@ Demo mode uses made-up appointments, and any API key works. Try these dates of b
 .venv/bin/python -m pytest
 ```
 
+### Scaling notes
+
+- A single container handles many practices: each check-in is a few Zanda calls, and the notifier connections are cheap.
+- To run several instances, replace `Broadcaster` in [`registry.py`](zanda_checkin/registry.py) with Redis pub/sub or Postgres `LISTEN/NOTIFY`, and move the in-memory rate limits to the same store.
+- The database tables are created on start-up. Add Alembic migrations before the schema changes in production.
+
 ## Roadmap
 
-- **Reception notifications on staff Macs.** A small menu-bar app on each reception or clinician Mac connects to the check-in server on the local network. After each check-in, the server broadcasts a short notification, for example "Alex N. has arrived for Sam Rivera", which pops up and fades away. The hook is already in place: `CheckinService.listeners` receives a `CheckinEvent` (`client_label`, `practitioner`, `starts_at`, `see_reception`) after every check-in.
-- Group appointment check-in (`PATCH /group-appointments/{id}/participants/{clientId}`).
-- An optional second identifier (such as the first letter of the surname) for larger practices.
+From a review of similar products (HotDoc, AutoMed, Jane, Cliniko add-ons, Envoy, Waitwhile and others):
 
-## API reference
-
-[Zanda API docs](https://zandaapi.zandahealth.com/docs/). This app uses:
-- `GET /locations`
-- `GET /appointment-flags`
-- `GET /appointments`
-- `GET /client-profiles/{id}`
-- `PATCH /appointments/{id}` with `{"attendanceState": "Arrived"}`. This endpoint is marked [BETA].
+- **Before launch:**
+  - Confirm with Zanda that `PATCH /appointments` (Arrived) works on production accounts.
+  - Add MFA for admin accounts.
+  - Add a privacy policy and terms.
+  - Sign the desktop builds.
+- **Soon:**
+  - Check in from the client's own phone (QR sign or SMS-reminder link).
+  - Staff roles (owner, admin, reception, clinician), with clinicians notified only for their own clients.
+  - Teams, Slack and email notifications.
+  - Password reset by email.
+  - Billing per site.
+- **Later:**
+  - Arrival analytics (on time, late, no-show).
+  - Group appointment check-in.
+  - Prompts to update contact details.
+  - A walk-in route.
+  - Languages other than English.
 
 ## Licence
 

@@ -2,7 +2,7 @@
   "use strict";
 
   // How long each screen waits before quietly going back to the start (ms).
-  const IDLE = { dob: 60000, confirm: 45000, done: 8000, reception: 12000 };
+  const IDLE = { dob: 60000, initial: 45000, confirm: 45000, done: 8000, reception: 12000 };
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -23,7 +23,7 @@
   }
 
   function reset() {
-    if (token) post("/api/cancel", { token }).catch(() => {});
+    if (token) post("/checkin/api/cancel", { token }).catch(() => {});
     token = null;
     digits = "";
     $$("[data-first-name], [data-practitioner], [data-time]").forEach((el) => (el.textContent = ""));
@@ -37,6 +37,7 @@
       body: JSON.stringify(body),
       cache: "no-store",
     });
+    if (resp.status === 401) { window.location.href = "/checkin/login"; throw new Error("signed out"); }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
   }
@@ -72,33 +73,46 @@
     })
   );
 
-  $("[data-submit-dob]").addEventListener("click", async () => {
-    if (digits.length !== 8) return;
-    if (!looksValid(digits)) {
-      $("[data-dob-error]").hidden = false;
-      return;
-    }
+  const needInitial = $(".stage").dataset.needInitial === "yes";
+
+  async function lookup(initial) {
     show("working");
     try {
-      const res = await post("/api/lookup", { dob: digits });
-      digits = "";
+      const res = await post("/checkin/api/lookup", { dob: digits, initial: initial || "" });
       if (res.status === "match") {
+        digits = "";
         token = res.token;
         $$("[data-first-name]").forEach((el) => (el.textContent = res.person.firstName));
         $("[data-practitioner]").textContent = res.person.practitioner;
+        $("[data-practitioner-row]").hidden = !res.person.practitioner;
         $("[data-time]").textContent = res.person.time;
         show("confirm");
       } else if (res.status === "invalid") {
         show("dob");
         $("[data-dob-error]").hidden = false;
+      } else if (res.status === "need_initial") {
+        show("initial");
       } else {
+        digits = "";
         show("reception");
       }
     } catch (e) {
       digits = "";
       show("reception");
     }
+  }
+
+  $("[data-submit-dob]").addEventListener("click", () => {
+    if (digits.length !== 8) return;
+    if (!looksValid(digits)) {
+      $("[data-dob-error]").hidden = false;
+      return;
+    }
+    if (needInitial) show("initial");
+    else lookup();
   });
+
+  $$("[data-letter]").forEach((b) => b.addEventListener("click", () => lookup(b.dataset.letter)));
 
   // --- Confirm --------------------------------------------------------------
   $("[data-confirm]").addEventListener("click", async () => {
@@ -106,7 +120,7 @@
     token = null;
     show("working");
     try {
-      const res = await post("/api/confirm", { token: t });
+      const res = await post("/checkin/api/confirm", { token: t });
       if (res.status === "done") {
         $$("[data-first-name]").forEach((el) => (el.textContent = res.firstName));
         $("[data-done-message]").textContent = res.seeReception
@@ -122,7 +136,7 @@
   });
 
   $("[data-not-me]").addEventListener("click", () => {
-    if (token) post("/api/cancel", { token }).catch(() => {});
+    if (token) post("/checkin/api/cancel", { token }).catch(() => {});
     token = null;
     show("reception");
   });
@@ -137,7 +151,7 @@
   $("[data-staff]").addEventListener("click", () => {
     const now = Date.now();
     taps = taps.filter((t) => now - t < 3000).concat(now);
-    if (taps.length >= 5) window.location.href = "/admin/login";
+    if (taps.length >= 5) window.location.href = "/checkin/exit";
   });
 
   // --- Keep the screen awake where Safari allows it ---------------------------

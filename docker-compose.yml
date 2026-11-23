@@ -1,0 +1,29 @@
+# Run locally:      docker compose up --build        then open http://localhost:8000
+# Demo data:        ZANDA_CHECKIN_DEMO=1 docker compose up --build
+# In production put an HTTPS reverse proxy in front (Caddy, Traefik, a cloud load balancer)
+# and set PUBLIC_URL, SECRET_KEY and ENCRYPTION_KEY explicitly.
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      SIGNUP_CODE: ${SIGNUP_CODE:-}
+      ZANDA_CHECKIN_DEMO: ${ZANDA_CHECKIN_DEMO:-0}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Uncomment to use Postgres instead of SQLite:
+      # DATABASE_URL: postgresql+psycopg://zc:zc@db/zc
+    volumes:
+      - zc-data:/data
+    restart: unless-stopped
+  # db:
+  #   image: postgres:17
+  #   environment: { POSTGRES_USER: zc, POSTGRES_PASSWORD: zc, POSTGRES_DB: zc }
+  #   volumes: [ "zc-db:/var/lib/postgresql/data" ]
+
+volumes:
+  zc-data:
+  # zc-db:

@@ -1,0 +1,35 @@
+{
+  "name": "zanda-checkin-desktop",
+  "productName": "Zanda Checkin",
+  "version": "0.2.0",
+  "description": "Arrival notifications from Zanda Checkin for reception and clinician computers",
+  "main": "src/main.js",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "io.github.dcohen410.zandacheckin",
+    "productName": "Zanda Checkin",
+    "files": ["src/**", "assets/**", "package.json"],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "assets/icon.png",
+      "extendInfo": { "LSUIElement": true }
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.png"
+    },
+    "nsis": { "oneClick": true, "perMachine": false }
+  }
+}

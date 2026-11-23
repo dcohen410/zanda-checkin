@@ -1,0 +1,66 @@
+{% extends "portal.html" %}
+{% block title %}Sites{% endblock %}
+{% block content %}
+<p class="eyebrow">{{ org.name }}</p>
+<h1>Sites</h1>
+
+{% if not org.sites %}
+<div class="card">
+  <h2>Add your first site</h2>
+  <p class="muted">A site is one waiting room: a Zanda account (API key) and the location it checks people in for.</p>
+  <a class="btn btn-primary" href="/admin/sites/new">Add a site</a>
+</div>
+{% else %}
+<div class="card list">
+  {% for s in org.sites %}
+  <a class="list-row" href="/admin/sites/{{ s.id }}">
+    <span><strong>{{ s.name }}</strong><br><small class="muted">{{ s.location_name or "No location chosen yet" }}</small></span>
+    <span class="pill {{ 'pill-ok' if s.is_ready else 'pill-warn' }}">{{ "Ready" if s.is_ready else "Needs setup" }}</span>
+  </a>
+  {% endfor %}
+</div>
+<a class="btn btn-ghost" href="/admin/sites/new">Add another site</a>
+{% endif %}
+
+<div class="card">
+  <h2>Set up devices</h2>
+  <ol class="steps">
+    <li><strong>Check-in iPad:</strong> open <code>{{ request.base_url }}checkin</code> in Safari, sign in with this account and choose the site. Then Share › Add to Home Screen.</li>
+    <li><strong>Reception and clinician computers:</strong> install the Zanda Checkin desktop app (Mac or Windows), sign in with this account and choose the site to get arrival notifications.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2>Signed-in devices</h2>
+  {% if devices %}
+  <table class="table">
+    <thead><tr><th>Device</th><th>Type</th><th>Site</th><th>Last seen</th><th></th></tr></thead>
+    <tbody>
+    {% for d in devices %}
+      <tr>
+        <td>{{ d.name }}</td>
+        <td>{{ "Check-in iPad" if d.kind == "kiosk" else "Desktop app" }}</td>
+        <td>{{ d.site.name if d.site else "—" }}</td>
+        <td>{{ d.last_seen_at.strftime("%d %b %Y %H:%M") ~ " UTC" if d.last_seen_at else "Never" }}</td>
+        <td>
+          <form method="post" action="/admin/devices/{{ d.id }}/revoke" class="inline-form" data-confirm="Sign this device out? It will need to sign in again.">
+            <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+            <button class="linklike danger" type="submit">Sign out</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No devices yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Recent activity</h2>
+  {% if events %}
+  <ul class="activity">
+    {% for e in events %}<li><span class="muted">{{ e.created_at.strftime("%d %b %H:%M") }} UTC</span> {{ e.action.replace(".", " ").replace("_", " ") }}{% if e.detail %}: {{ e.detail }}{% endif %}</li>{% endfor %}
+  </ul>
+  {% else %}<p class="muted">Nothing yet.</p>{% endif %}
+</div>
+{% endblock %}

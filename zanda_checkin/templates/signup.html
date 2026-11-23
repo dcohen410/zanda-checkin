@@ -1,0 +1,27 @@
+{% extends "portal.html" %}
+{% block title %}Create an account{% endblock %}
+{% block content %}
+<h1>Create your practice account</h1>
+<p class="muted">One account per practice. You'll use it to add sites, sign in the check-in iPads and the desktop notification app.</p>
+<form method="post" action="/signup" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+  {% if needs_code %}
+  <label for="signup_code">Sign-up code <small>We'll have given you this.</small></label>
+  <input id="signup_code" name="signup_code" autocomplete="off" required>
+  {% endif %}
+  <label for="practice_name">Practice name</label>
+  <input id="practice_name" name="practice_name" maxlength="120" value="{{ form.practice_name or '' }}" required>
+  <label for="name">Your name</label>
+  <input id="name" name="name" maxlength="120" autocomplete="name" value="{{ form.name or '' }}">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" value="{{ form.email or '' }}" required>
+  <div class="row">
+    <div><label for="password">Password <small>At least 10 characters</small></label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required></div>
+    <div><label for="password2">Password again <small>&nbsp;</small></label>
+      <input id="password2" name="password2" type="password" autocomplete="new-password" minlength="10" required></div>
+  </div>
+  <button class="btn btn-primary" type="submit">Create account</button>
+</form>
+<p class="muted">Already have one? <a href="/login">Sign in</a>.</p>
+{% endblock %}
