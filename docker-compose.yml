@@ -1,29 +1,59 @@
-# Run locally:      docker compose up --build        then open http://localhost:8000
-# Demo data:        ZANDA_CHECKIN_DEMO=1 docker compose up --build
-# In production put an HTTPS reverse proxy in front (Caddy, Traefik, a cloud load balancer)
-# and set PUBLIC_URL, SECRET_KEY and ENCRYPTION_KEY explicitly.
+# HTTPS everywhere: Caddy terminates TLS and is the only thing exposed. The app is reachable
+# only on a private network, and only trusts forwarding headers from Caddy's fixed address.
+#
+# First run:   ./scripts/make-env.sh          (creates .env with strong secrets; keep it safe)
+# Local test:  ZANDA_CHECKIN_DEMO=1 docker compose up --build      then open https://localhost
+# Production:  set DOMAIN in .env to a DNS name pointing at this server, then docker compose up -d --build
 services:
   app:
     build: .
-    ports:
-      - "8000:8000"
+    expose: ["8000"]          # not published to the host
     environment:
-      PUBLIC_URL: ${PUBLIC_URL:-}
-      SECRET_KEY: ${SECRET_KEY:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-      SIGNUP_CODE: ${SIGNUP_CODE:-}
+      PUBLIC_URL: https://${DOMAIN:-localhost}
+      SECRET_KEY: ${SECRET_KEY:?Run ./scripts/make-env.sh first}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Run ./scripts/make-env.sh first}
+      SIGNUP_CODE: ${SIGNUP_CODE:?Run ./scripts/make-env.sh first}
       ZANDA_CHECKIN_DEMO: ${ZANDA_CHECKIN_DEMO:-0}
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
-      # Uncomment to use Postgres instead of SQLite:
-      # DATABASE_URL: postgresql+psycopg://zc:zc@db/zc
+      FORWARDED_ALLOW_IPS: 172.30.0.10   # Caddy only
+      # Postgres instead of SQLite (keep sslmode=verify-full when the database is on another host):
+      # DATABASE_URL: postgresql+psycopg://zc:${DB_PASSWORD}@db.example.com/zc?sslmode=verify-full
     volumes:
       - zc-data:/data
+    networks: [internal]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
-  # db:
-  #   image: postgres:17
-  #   environment: { POSTGRES_USER: zc, POSTGRES_PASSWORD: zc, POSTGRES_DB: zc }
-  #   volumes: [ "zc-db:/var/lib/postgresql/data" ]
+
+  caddy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      internal:
+        ipv4_address: 172.30.0.10
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [app]
+    restart: unless-stopped
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   zc-data:
-  # zc-db:
+  caddy-data:
+  caddy-config:

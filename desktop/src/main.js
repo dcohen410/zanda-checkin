@@ -3,7 +3,7 @@
 // Zanda Checkin desktop notifier: lives in the menu bar (Mac) or system tray (Windows),
 // listens to one site's check-ins and shows a native notification for each arrival.
 
-const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, safeStorage } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -14,7 +14,8 @@ const CONFIG_PATH = () => path.join(app.getPath("userData"), "config.json");
 
 let tray = null;
 let win = null;
-let state = { server: DEFAULT_SERVER, token: null, siteId: null, siteName: "", orgName: "", email: "" };
+let state = { server: DEFAULT_SERVER, token: null, siteId: null, siteName: "", orgName: "", email: "",
+  showNames: false };
 let status = "Not signed in";
 let stream = null; // AbortController for the live connection
 let retryTimer = null;
@@ -123,9 +124,14 @@ function notify(msg) {
   const extra = [];
   if (msg.seeReception) extra.push("Asked to see reception.");
   if (msg.zandaUpdated === false) extra.push("Mark them Arrived in Zanda.");
+  const str = (v) => (typeof v === "string" ? v.slice(0, 120) : "");
+  // Notifications can show on a locked screen, so names can be hidden (on by default).
+  const title = state.showNames
+    ? str(msg.message) || `${str(msg.client)} has arrived`
+    : `A client has arrived${str(msg.practitioner) ? " for " + str(msg.practitioner) : ""}`;
   const n = new Notification({
-    title: msg.message || `${msg.client} has arrived`,
-    body: [msg.siteName, ...extra].filter(Boolean).join(" · "),
+    title,
+    body: [str(msg.siteName), ...extra].filter(Boolean).join(" · "),
     silent: false,
     timeoutType: "default", // let the OS dismiss it after a few seconds
   });
@@ -161,6 +167,8 @@ function refreshTray() {
       click: () => notify({ message: "Test: Alex N. has arrived for Sam", siteName: state.siteName }) },
     ...(signedIn ? [{ label: "Sign out", click: signOut }] : []),
     { type: "separator" },
+    { label: "Show client names in notifications", type: "checkbox", checked: Boolean(state.showNames),
+      click: (item) => { state.showNames = item.checked; saveState(); } },
     { label: "Open at login", type: "checkbox", checked: app.getLoginItemSettings().openAtLogin,
       click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }) },
     { label: "Quit Zanda Checkin", click: () => app.quit() },
@@ -178,10 +186,6 @@ function showWindow() {
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
   win.once("ready-to-show", () => win.show());
   win.on("closed", () => { win = null; });
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) shell.openExternal(url);
-    return { action: "deny" };
-  });
 }
 
 async function signOut() {
@@ -194,21 +198,41 @@ async function signOut() {
 }
 
 // ---------------------------------------------------------------- IPC from the window
-ipcMain.handle("get-state", () => ({
+// Only answer our own bundled window, never another frame or page.
+function trusted(event) {
+  const url = event.senderFrame && event.senderFrame.url;
+  return Boolean(win && event.sender === win.webContents && url && url.startsWith("file://")
+    && url.endsWith("/renderer/index.html"));
+}
+
+function handle(channel, fn) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!trusted(event)) throw new Error("Not allowed");
+    return fn(event, ...args);
+  });
+}
+
+handle("get-state", () => ({
   server: state.server, signedIn: Boolean(state.token), siteId: state.siteId,
   orgName: state.orgName, email: state.email, status,
 }));
 
-ipcMain.handle("sign-in", async (_e, { server, email, password }) => {
-  const url = String(server || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//.test(url)) throw new Error("Enter the server address, starting with https://");
-  if (url.startsWith("http://") && !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(url)) {
+handle("sign-in", async (_e, { server, email, password, code }) => {
+  let url;
+  try {
+    url = new URL(String(server || "").trim());
+  } catch (_) {
+    throw new Error("Enter the server address, starting with https://");
+  }
+  const local = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !local) {
     throw new Error("Use the https:// address. Notifications include client names, so they must be encrypted.");
   }
-  state.server = url;
+  if (url.username || url.password) throw new Error("Enter just the server address.");
+  state.server = url.origin;
   const data = await api("/api/v1/auth/login", {
     method: "POST", token: null,
-    body: { email, password, deviceName: `${os.hostname()} (desktop app)` },
+    body: { email, password, code, deviceName: `${os.hostname()} (desktop app)` },
   });
   state = { ...state, token: data.token, orgName: data.organisation.name, email: data.user.email };
   saveState();
@@ -216,7 +240,7 @@ ipcMain.handle("sign-in", async (_e, { server, email, password }) => {
   return { orgName: state.orgName };
 });
 
-ipcMain.handle("list-sites", async () => {
+handle("list-sites", async () => {
   try {
     return (await api("/api/v1/sites")).sites;
   } catch (err) {
@@ -225,23 +249,33 @@ ipcMain.handle("list-sites", async () => {
   }
 });
 
-ipcMain.handle("choose-site", async (_e, { siteId, siteName }) => {
+handle("choose-site", async (_e, { siteId, siteName }) => {
+  if (!Number.isInteger(siteId) || siteId <= 0) throw new Error("Choose a site");
   state.siteId = siteId;
-  state.siteName = siteName;
+  state.siteName = String(siteName || "").slice(0, 120);
   saveState();
   startStream();
   if (win) win.close();
   return true;
 });
 
-ipcMain.handle("sign-out", () => signOut());
+handle("sign-out", () => signOut());
 
 // ---------------------------------------------------------------- app lifecycle
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showWindow);
+  // Lock every window down: no navigation away, no pop-ups, no camera/mic/etc. permissions.
+  app.on("web-contents-created", (_e, contents) => {
+    contents.on("will-navigate", (ev) => ev.preventDefault());
+    contents.on("will-attach-webview", (ev) => ev.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  });
   app.whenReady().then(() => {
+    const { session } = require("electron");
+    session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+    session.defaultSession.setPermissionCheckHandler(() => false);
     if (process.platform === "darwin" && app.dock) app.dock.hide();
     if (process.platform === "win32") app.setAppUserModelId("io.github.dcohen410.zandacheckin");
     loadState();

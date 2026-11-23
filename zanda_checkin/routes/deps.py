@@ -1,10 +1,12 @@
 """Shared request dependencies."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from fastapi import Depends, Request
 
 from ..app import LoginRequired
-from ..db import User
+from ..db import User, WebSession
 
 
 def get_db(request: Request):
@@ -15,35 +17,42 @@ def get_db(request: Request):
         db.close()
 
 
-def current_user(request: Request, db=Depends(get_db)) -> User:
-    uid = request.session.get("user_id")
-    user = db.get(User, uid) if uid else None
+@dataclass
+class Admin:
+    user: User
+    session: WebSession
+
+    @property
+    def org_id(self) -> int:
+        return self.user.organisation_id
+
+
+def _admin(request: Request, db) -> Admin:
+    ws = request.app.state.accounts.session(request, db, "admin")
+    user = db.get(User, ws.user_id) if ws else None
     if user is None:
-        request.session.pop("user_id", None)
+        request.session.clear()
         raise LoginRequired("/login")
-    return user
+    return Admin(user, ws)
 
 
-def authenticate(request: Request, db, email: str, password: str) -> tuple[User | None, str | None]:
-    """Shared by every sign-in form. Returns (user, error message)."""
-    from datetime import datetime, timezone
+def signed_in(request: Request, db=Depends(get_db)) -> Admin:
+    """Signed in, MFA not necessarily set up yet (only for the MFA set-up pages)."""
+    return _admin(request, db)
 
-    from ..app import client_ip
-    from ..security import dummy_verify, verify_password
 
-    email = (email or "").strip().lower()
-    limiter, ip_limiter = request.app.state.login_limiter, request.app.state.ip_limiter
-    ip = client_ip(request)
-    if limiter.blocked(email) or ip_limiter.blocked(ip):
-        return None, "Too many sign-in attempts. Wait 15 minutes and try again."
-    user = db.query(User).filter_by(email=email).one_or_none()
-    if user is None:
-        dummy_verify(password or "")
-    if user is None or not verify_password(password or "", user.password_hash):
-        limiter.hit(email)
-        ip_limiter.hit(ip)
-        return None, "That email and password don't match an account."
-    limiter.reset(email)
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-    return user, None
+def current_admin(request: Request, db=Depends(get_db)) -> Admin:
+    """Signed in with two-step sign-in set up. Everything in the admin portal needs this."""
+    admin = _admin(request, db)
+    if not admin.user.totp_enabled:
+        raise LoginRequired("/admin/mfa")
+    return admin
+
+
+def org_key(request: Request, admin: Admin, db) -> bytes:
+    """The practice master key, unlocked with this browser's session secret."""
+    omk = request.app.state.accounts.session_omk(request, db, admin.session)
+    if omk is None:
+        request.session.clear()
+        raise LoginRequired("/login")
+    return omk

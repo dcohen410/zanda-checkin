@@ -1,0 +1,27 @@
+# TLS for Zanda Checkin. With DOMAIN set to a real name pointing at this server, Caddy gets and
+# renews a Let's Encrypt certificate automatically. With no DOMAIN it serves https://localhost
+# from Caddy's own local CA (for testing).
+{
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$DOMAIN:localhost} {
+	tls {
+		protocols tls1.2 tls1.3
+	}
+	encode zstd gzip
+	header -Server
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy app:8000 {
+		flush_interval -1  # stream live notifications immediately
+		# Replace any client-supplied forwarding headers with the real client address.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Plain http only ever redirects to https (Caddy does this automatically for the site above).

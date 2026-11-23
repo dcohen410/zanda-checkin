@@ -1,0 +1,33 @@
+{% extends "portal.html" %}
+{% block title %}Two-step sign-in{% endblock %}
+{% block content %}
+<h1>Two-step sign-in</h1>
+{% if enabled %}
+  <div class="card">
+    <p><strong>On.</strong> Signing in needs your password and a code from your authenticator app.</p>
+    <p class="muted">{{ recovery_left }} recovery code{{ "" if recovery_left == 1 else "s" }} left.</p>
+  </div>
+  <form method="post" action="/admin/mfa/recovery-codes" class="card">
+    <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+    <h2>New recovery codes</h2>
+    <p class="muted">Replaces your old codes.</p>
+    <label for="password">Your password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button class="btn btn-ghost" type="submit">Make new codes</button>
+  </form>
+{% else %}
+  <p class="muted">Required for every account. It protects your practice's Zanda data if your password is ever guessed or leaked.</p>
+  <div class="card">
+    <h2>1. Scan this with an authenticator app</h2>
+    <p class="muted">For example Microsoft Authenticator, Google Authenticator, 1Password or your phone's built-in passwords app.</p>
+    <div class="qr">{{ qr|safe }}</div>
+    <p class="muted">Can't scan? Enter this key instead: <code>{{ secret }}</code></p>
+  </div>
+  <form method="post" action="/admin/mfa" class="card">
+    <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+    <h2>2. Enter the 6-digit code it shows</h2>
+    <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required autofocus>
+    <button class="btn btn-primary" type="submit">Turn on</button>
+  </form>
+{% endif %}
+{% endblock %}

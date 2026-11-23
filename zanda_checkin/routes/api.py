@@ -8,14 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from ..app import audit, find_device, touch
+from ..accounts import device_by_token
+from ..app import audit, touch
 from ..db import Device, Organisation, Site
 from ..security import new_device_token
-from .deps import authenticate, get_db
+from .deps import get_db
 
 router = APIRouter(prefix="/api/v1")
 HEARTBEAT = 20         # seconds between keep-alive comments
-RECHECK = 60           # seconds between "is this device still signed in?" checks
+RECHECK = 30           # seconds between "is this device still signed in?" checks
 
 
 def bearer(request: Request) -> str | None:
@@ -24,7 +25,7 @@ def bearer(request: Request) -> str | None:
 
 
 def notifier_device(request: Request, db) -> Device:
-    device = find_device(db, bearer(request), "notifier")
+    device = device_by_token(db, bearer(request), "notifier")
     if device is None:
         raise HTTPException(401, "Signed out")
     touch(db, device)
@@ -45,9 +46,12 @@ async def login(request: Request):
 def _login(request: Request, body: dict):
     db = request.app.state.Session()
     try:
-        user, error = authenticate(request, db, str(body.get("email", "")), str(body.get("password", "")))
-        if error:
-            return JSONResponse({"error": error}, status_code=401)
+        result = request.app.state.accounts.authenticate(
+            request, db, str(body.get("email", ""))[:254], str(body.get("password", ""))[:1024],
+            str(body.get("code", ""))[:32], require_mfa=True)
+        if result.error:
+            return JSONResponse({"error": result.error, "needsCode": result.needs_code}, status_code=401)
+        user = result.user
         token, token_hash = new_device_token()
         name = str(body.get("deviceName", "") or "Desktop app")[:120]
         db.add(Device(organisation_id=user.organisation_id, user_id=user.id, kind="notifier",
@@ -63,7 +67,7 @@ def _login(request: Request, body: dict):
 @router.post("/auth/logout")
 def logout(request: Request, db=Depends(get_db)):
     device = notifier_device(request, db)
-    device.revoked = True
+    request.app.state.accounts.forget_device(db, device)
     audit(db, device.organisation_id, device.user_id, "device.signed_out", f"notifier: {device.name}")
     db.commit()
     return {"ok": True}
@@ -102,6 +106,8 @@ async def events(site_id: int, request: Request):
             db.close()
 
     broadcaster = request.app.state.broadcaster
+    if not broadcaster.claim(device_id):
+        raise HTTPException(429, "Too many open connections for this device")
     queue = broadcaster.subscribe(site_id)
 
     async def stream():
@@ -125,6 +131,7 @@ async def events(site_id: int, request: Request):
                         break
         finally:
             broadcaster.unsubscribe(site_id, queue)
+            broadcaster.release(device_id)
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

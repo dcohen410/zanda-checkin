@@ -49,6 +49,12 @@
   </div>
 
   <div class="card">
+    <h2>Staff notifications</h2>
+    <label class="check"><input type="checkbox" name="notify_names" {% if site.notify_names %}checked{% endif %}>
+      <span>Include the client's first name and surname initial <small>Otherwise desktop apps just show "A client has arrived for [clinician]". Each computer can also hide names itself.</small></span></label>
+  </div>
+
+  <div class="card">
     <h2>Send to reception</h2>
     <label for="reception_flag">Appointment flag <small>When reception gives an appointment this flag in Zanda, the client still checks in but is asked to see reception afterwards.</small></label>
     <select id="reception_flag" name="reception_flag">

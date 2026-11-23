@@ -1,5 +1,6 @@
 # Zanda Checkin service: admin portal, check-in portal and notifier API in one container.
-FROM python:3.12-slim
+# Base image pinned by digest (Dependabot proposes updates).
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -7,8 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Every package is checked against the hashes in requirements.lock (regenerate with pip-compile).
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 
 COPY zanda_checkin ./zanda_checkin
 

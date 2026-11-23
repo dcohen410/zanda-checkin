@@ -6,6 +6,7 @@
   <nav>
     <a href="/admin">Sites</a>
     <a href="/admin/account">Account</a>
+    <a href="/admin/mfa">Two-step sign-in</a>
     <form method="post" action="/logout" class="inline-form">
       <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
       <button class="linklike" type="submit">Sign out</button>

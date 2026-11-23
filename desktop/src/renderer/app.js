@@ -55,8 +55,10 @@ $("signin").addEventListener("submit", async (e) => {
   try {
     const res = await window.zc.signIn({
       server: $("server").value, email: $("email").value, password: $("password").value,
+      code: $("code").value,
     });
     $("password").value = "";
+    $("code").value = "";
     showSites(res.orgName);
   } catch (err) {
     showError(err);

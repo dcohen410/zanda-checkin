@@ -10,14 +10,39 @@ from collections import defaultdict
 
 from cryptography.fernet import Fernet, InvalidToken
 
-# scrypt parameters (OWASP-recommended minimums: N=2^17, r=8, p=1).
+# scrypt parameters (OWASP-recommended minimums: N=2^17, r=8, p=1). Each run uses ~128 MB,
+# so at most KDF_SLOTS run at once: a flood of sign-in attempts queues instead of exhausting memory.
 _N, _R, _P = 2 ** 17, 8, 1
-MIN_PASSWORD = 10
+KDF_SLOTS = threading.BoundedSemaphore(4)
+MIN_PASSWORD = 12
+
+
+def scrypt(password: bytes, salt: bytes, n: int, r: int, p: int, dklen: int = 64) -> bytes:
+    with KDF_SLOTS:
+        return hashlib.scrypt(password, salt=salt, n=n, r=r, p=p, maxmem=256 * 1024 * 1024, dklen=dklen)
+
+
+def password_problem(password: str, *context: str) -> str | None:
+    """None if the password is strong enough, otherwise a plain-English reason.
+
+    Passwords protect each practice's master key, and someone holding the database could try
+    to guess them offline, so we need genuinely hard-to-guess ones, not just long ones.
+    """
+    if len(password) < MIN_PASSWORD:
+        return f"Use at least {MIN_PASSWORD} characters. A few unrelated words works well."
+    if len(password) > 1024:
+        return "That password is too long."
+    from zxcvbn import zxcvbn
+    result = zxcvbn(password[:100], user_inputs=[c for c in context if c])
+    if result["score"] < 3:
+        hint = (result.get("feedback") or {}).get("warning") or "It would be too easy to guess."
+        return f"Choose a harder-to-guess password. {hint}".strip()
+    return None
 
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=_N, r=_R, p=_P, maxmem=256 * 1024 * 1024)
+    digest = scrypt(password.encode(), salt, _N, _R, _P)
     return f"scrypt${_N}${_R}${_P}${salt.hex()}${digest.hex()}"
 
 
@@ -26,8 +51,7 @@ def verify_password(password: str, stored: str) -> bool:
         algo, n, r, p, salt, digest = stored.split("$")
         if algo != "scrypt":
             return False
-        check = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=int(n), r=int(r), p=int(p),
-                               maxmem=256 * 1024 * 1024)
+        check = scrypt(password.encode(), bytes.fromhex(salt), int(n), int(r), int(p))
         return hmac.compare_digest(check.hex(), digest)
     except (ValueError, TypeError):
         return False

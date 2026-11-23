@@ -1,8 +1,8 @@
 """Check-in portal: the iPad signs in once with the practice account, then shows the kiosk.
 
-The iPad holds only a kiosk device token (an HttpOnly cookie scoped to /checkin).
-It can look up and confirm check-ins for its one site, and nothing else. It
-can't open the admin portal.
+The iPad holds only a kiosk device token (an HttpOnly, Secure cookie scoped to /checkin).
+That token is also what unlocks the practice's key for this iPad: the server keeps only a
+hash of it, so the server can't use the key without the iPad.
 """
 from __future__ import annotations
 
@@ -10,13 +10,15 @@ import logging
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
-from ..app import KIOSK_COOKIE, audit, check_csrf, find_device, render, touch
+from ..accounts import device_by_token
+from ..app import audit, check_csrf, render, touch
 from ..checkin import parse_dob
 from ..db import CheckinLog, Device, Organisation, Site
 from ..security import new_device_token
 from ..zanda import ZandaError
-from .deps import authenticate, get_db
+from .deps import get_db
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/checkin")
@@ -27,16 +29,28 @@ def see_other(url: str) -> RedirectResponse:
     return RedirectResponse(url, status_code=303)
 
 
+def kiosk_token(request: Request) -> str | None:
+    return request.cookies.get(request.app.state.kiosk_cookie)
+
+
 def kiosk_device(request: Request, db) -> Device | None:
-    device = find_device(db, request.cookies.get(KIOSK_COOKIE), "kiosk")
+    device = device_by_token(db, kiosk_token(request), "kiosk")
     if device is not None:
         touch(db, device)
     return device
 
 
 def log_outcome(db, site_id: int, outcome: str) -> None:
-    db.add(CheckinLog(site_id=site_id, outcome=outcome))
+    db.add(CheckinLog(site_id=site_id, outcome=outcome[:24]))
     db.commit()
+
+
+def login_page(request, status=200, **kw):
+    kw.setdefault("error", None)
+    kw.setdefault("email", "")
+    return render(request, "login.html", status, action="/checkin/login", title="Set up this check-in screen",
+                  intro="Sign in with your practice's Zanda Checkin account. You only need to do this once per iPad.",
+                  show_code=True, **kw)
 
 
 @router.get("")
@@ -53,31 +67,27 @@ def kiosk(request: Request, db=Depends(get_db)):
 
 @router.get("/login")
 def login_form(request: Request):
-    return render(request, "login.html", error=None, email="", action="/checkin/login",
-                  title="Set up this check-in screen",
-                  intro="Sign in with your practice's Zanda Checkin account. You only need to do this once per iPad.")
+    return login_page(request)
 
 
 @router.post("/login")
 def login(request: Request, db=Depends(get_db), csrf: str = Form(""), email: str = Form(""),
-          password: str = Form("")):
+          password: str = Form(""), code: str = Form("")):
     check_csrf(request, csrf)
-    user, error = authenticate(request, db, email, password)
-    if error:
-        return render(request, "login.html", 400, error=error, email=email, action="/checkin/login",
-                      title="Set up this check-in screen",
-                      intro="Sign in with your practice's Zanda Checkin account.")
-    request.session["kiosk_user_id"] = user.id
-    request.session["kiosk_org_id"] = user.organisation_id
+    accounts = request.app.state.accounts
+    result = accounts.authenticate(request, db, email, password, code, require_mfa=True)
+    if result.error:
+        return login_page(request, 400, error=result.error, email=email)
+    accounts.start_session(request, db, result.user, result.omk, purpose="kiosk_setup")
     return see_other("/checkin/choose-site")
 
 
 @router.get("/choose-site")
 def choose_site_form(request: Request, db=Depends(get_db)):
-    org_id = request.session.get("kiosk_org_id")
-    if not org_id:
+    ws = request.app.state.accounts.session(request, db, "kiosk_setup")
+    if ws is None:
         return see_other("/checkin/login")
-    sites = db.query(Site).filter_by(organisation_id=org_id).order_by(Site.name).all()
+    sites = db.query(Site).filter_by(organisation_id=ws.organisation_id).order_by(Site.name).all()
     return render(request, "choose_site.html", sites=sites)
 
 
@@ -85,20 +95,26 @@ def choose_site_form(request: Request, db=Depends(get_db)):
 def choose_site(request: Request, db=Depends(get_db), csrf: str = Form(""), site_id: int = Form(0),
                 device_name: str = Form("")):
     check_csrf(request, csrf)
-    org_id, user_id = request.session.get("kiosk_org_id"), request.session.get("kiosk_user_id")
+    accounts = request.app.state.accounts
+    ws = accounts.session(request, db, "kiosk_setup")
     site = db.get(Site, site_id)
-    if not org_id or site is None or site.organisation_id != org_id:
+    if ws is None or site is None or site.organisation_id != ws.organisation_id:
+        return see_other("/checkin/login")
+    omk = accounts.session_omk(request, db, ws)
+    if omk is None:
         return see_other("/checkin/login")
     token, token_hash = new_device_token()
     name = device_name.strip()[:120] or "Check-in iPad"
-    db.add(Device(organisation_id=org_id, user_id=user_id, site_id=site.id, kind="kiosk",
-                  name=name, token_hash=token_hash))
-    audit(db, org_id, user_id, "device.kiosk_added", f"{name} at {site.name}")
+    device = Device(organisation_id=ws.organisation_id, user_id=ws.user_id, site_id=site.id, kind="kiosk",
+                    name=name, token_hash=token_hash)
+    db.add(device)
+    db.flush()
+    accounts.wrap_for_device(db, device, token, omk)
+    audit(db, ws.organisation_id, ws.user_id, "device.kiosk_added", f"{name} at {site.name}")
     db.commit()
-    request.session.pop("kiosk_user_id", None)
-    request.session.pop("kiosk_org_id", None)
+    accounts.end_session(request, db)  # the setup session (and its key copy) is no longer needed
     resp = see_other("/checkin")
-    resp.set_cookie(KIOSK_COOKIE, token, max_age=ONE_YEAR, path="/checkin", httponly=True,
+    resp.set_cookie(request.app.state.kiosk_cookie, token, max_age=ONE_YEAR, path="/checkin", httponly=True,
                     secure=request.app.state.settings.secure_cookies, samesite="strict")
     return resp
 
@@ -108,29 +124,33 @@ def exit_form(request: Request, db=Depends(get_db)):
     if kiosk_device(request, db) is None:
         return see_other("/checkin/login")
     return render(request, "login.html", error=None, email="", action="/checkin/exit",
-                  title="Sign this iPad out",
+                  title="Sign this iPad out", show_code=True,
                   intro="Staff only. Sign in with your practice account to stop this iPad being a check-in screen.",
                   back="/checkin")
 
 
 @router.post("/exit")
 def exit_kiosk(request: Request, db=Depends(get_db), csrf: str = Form(""), email: str = Form(""),
-               password: str = Form("")):
+               password: str = Form(""), code: str = Form("")):
     check_csrf(request, csrf)
     device = kiosk_device(request, db)
     if device is None:
         return see_other("/checkin/login")
-    user, error = authenticate(request, db, email, password)
-    if user is not None and user.organisation_id != device.organisation_id:
-        user, error = None, "That account isn't for this practice."
+    result = request.app.state.accounts.authenticate(request, db, email, password, code, require_mfa=True,
+                                                     scope=f"exit:{device.id}")
+    error = result.error
+    if not error and result.user.organisation_id != device.organisation_id:
+        error = "That account isn't for this practice."
     if error:
         return render(request, "login.html", 400, error=error, email=email, action="/checkin/exit",
-                      title="Sign this iPad out", intro="Staff only.", back="/checkin")
-    device.revoked = True
-    audit(db, device.organisation_id, user.id, "device.signed_out", f"kiosk: {device.name}")
+                      title="Sign this iPad out", intro="Staff only.", back="/checkin", show_code=True)
+    request.app.state.accounts.forget_device(db, device)
+    audit(db, device.organisation_id, result.user.id, "device.signed_out", f"kiosk: {device.name}")
     db.commit()
+    request.session.clear()
     resp = see_other("/checkin/login")
-    resp.delete_cookie(KIOSK_COOKIE, path="/checkin")
+    resp.delete_cookie(request.app.state.kiosk_cookie, path="/checkin",
+                       secure=request.app.state.settings.secure_cookies, httponly=True, samesite="strict")
     return resp
 
 
@@ -148,6 +168,8 @@ def manifest(request: Request):
 async def _json_body(request: Request) -> dict:
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         raise HTTPException(400)
+    if int(request.headers.get("content-length") or 0) > 4096:
+        raise HTTPException(413)
     try:
         body = await request.json()
     except ValueError:
@@ -155,40 +177,51 @@ async def _json_body(request: Request) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _ready_site(request: Request, db) -> Site:
+def _service(request: Request, db):
+    """The site's check-in service, using the key unlocked by this iPad's own token."""
     device = kiosk_device(request, db)
     if device is None or device.site is None:
         raise HTTPException(401)
-    if not device.site.is_ready:
+    site = device.site
+    if not site.is_ready:
         raise HTTPException(409)
-    return device.site
+    accounts = request.app.state.accounts
+    omk = accounts.device_omk(db, device, kiosk_token(request))
+    if omk is None:
+        raise HTTPException(401)
+    key = accounts.open_api_key(omk, site)
+    return site, request.app.state.registry.service_for(site, key)
+
+
+def _log_failure(site_id: int, what: str, exc: Exception) -> None:
+    detail = f"Zanda {exc.status}" if isinstance(exc, ZandaError) else type(exc).__name__
+    log.error("%s failed for site %s: %s", what, site_id, detail)
 
 
 @router.post("/api/lookup")
 async def api_lookup(request: Request):
     body = await _json_body(request)
-    from starlette.concurrency import run_in_threadpool
     return await run_in_threadpool(_lookup, request, body)
 
 
 def _lookup(request: Request, body: dict):
     db = request.app.state.Session()
     try:
-        site = _ready_site(request, db)
-        dob = parse_dob(str(body.get("dob", "")))
+        site, service = _service(request, db)
+        dob = parse_dob(str(body.get("dob", ""))[:16])
         initial = str(body.get("initial", ""))[:1]
         if dob is None:
             return JSONResponse({"status": "invalid"})
         if site.require_surname_initial and not initial.isalpha():
             return JSONResponse({"status": "need_initial"})
         try:
-            result = request.app.state.registry.service_for(site).lookup(dob, initial or None)
+            result = service.lookup(dob, initial or None)
         except Exception as exc:
-            log.error("Lookup failed for site %s: %s", site.id, exc if isinstance(exc, ZandaError) else repr(exc))
+            _log_failure(site.id, "Lookup", exc)
             log_outcome(db, site.id, "error")
             return JSONResponse({"status": "reception", "reason": "error"})
         if result.status != "match":
-            log_outcome(db, site.id, f"reception_{result.reason}"[:24])
+            log_outcome(db, site.id, f"reception_{result.reason}")
             return JSONResponse({"status": "reception"})
         person = result.candidate.public()
         if not site.show_clinician:
@@ -201,18 +234,17 @@ def _lookup(request: Request, body: dict):
 @router.post("/api/confirm")
 async def api_confirm(request: Request):
     body = await _json_body(request)
-    from starlette.concurrency import run_in_threadpool
     return await run_in_threadpool(_confirm, request, body)
 
 
 def _confirm(request: Request, body: dict):
     db = request.app.state.Session()
     try:
-        site = _ready_site(request, db)
+        site, service = _service(request, db)
         try:
-            cand = request.app.state.registry.service_for(site).confirm(str(body.get("token", "")))
+            cand = service.confirm(str(body.get("token", ""))[:64])
         except Exception as exc:
-            log.error("Check-in failed for site %s: %s", site.id, exc if isinstance(exc, ZandaError) else repr(exc))
+            _log_failure(site.id, "Check-in", exc)
             log_outcome(db, site.id, "error")
             return JSONResponse({"status": "reception", "reason": "error"})
         if cand is None:
@@ -227,11 +259,16 @@ def _confirm(request: Request, body: dict):
 @router.post("/api/cancel")
 async def api_cancel(request: Request):
     body = await _json_body(request)
-    db = request.app.state.Session()
-    try:
-        device = kiosk_device(request, db)
-        if device is not None and device.site is not None and device.site.is_ready:
-            request.app.state.registry.service_for(device.site).cancel(str(body.get("token", "")))
-    finally:
-        db.close()
+
+    def cancel():
+        db = request.app.state.Session()
+        try:
+            _site, service = _service(request, db)
+            service.cancel(str(body.get("token", ""))[:64])
+        except HTTPException:
+            pass
+        finally:
+            db.close()
+
+    await run_in_threadpool(cancel)
     return JSONResponse({"status": "ok"})

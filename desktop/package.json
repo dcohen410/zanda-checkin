@@ -1,7 +1,7 @@
 {
   "name": "zanda-checkin-desktop",
   "productName": "Zanda Checkin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Arrival notifications from Zanda Checkin for reception and clinician computers",
   "main": "src/main.js",
   "license": "MIT",
@@ -13,23 +13,51 @@
     "dist:win": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "@electron/fuses": "2.1.3"
   },
   "build": {
     "appId": "io.github.dcohen410.zandacheckin",
     "productName": "Zanda Checkin",
-    "files": ["src/**", "assets/**", "package.json"],
+    "files": [
+      "src/**",
+      "assets/**",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.business",
-      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
       "icon": "assets/icon.png",
-      "extendInfo": { "LSUIElement": true }
+      "extendInfo": {
+        "LSUIElement": true
+      },
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/icon.png"
     },
-    "nsis": { "oneClick": true, "perMachine": false }
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "afterPack": "scripts/fuses.js",
+    "asar": true
   }
 }

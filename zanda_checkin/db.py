@@ -32,9 +32,37 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120), default="")
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Salt for the password-derived key that unlocks the practice's master key (see keyring.py).
+    kek_salt: Mapped[str] = mapped_column(String(64), default="")
+    # Authenticator-app MFA. The secret is encrypted with the server key; recovery codes are hashed.
+    totp_secret_encrypted: Mapped[str] = mapped_column(Text, default="")
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_last_step: Mapped[int] = mapped_column(Integer, default=0)
+    recovery_code_hashes: Mapped[str] = mapped_column(Text, default="")  # newline-separated sha256
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     organisation: Mapped[Organisation] = relationship(back_populates="users")
+
+
+class KeyWrap(Base):
+    """The practice's master key, wrapped for one holder (a user, a kiosk device or a web session)."""
+    __tablename__ = "key_wraps"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organisation_id: Mapped[int] = mapped_column(ForeignKey("organisations.id", ondelete="CASCADE"), index=True)
+    holder: Mapped[str] = mapped_column(String(80), unique=True, index=True)  # "user:1", "device:3", "session:<id>"
+    wrapped: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WebSession(Base):
+    """Server-side record of a signed-in browser, so sessions can be revoked."""
+    __tablename__ = "web_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    organisation_id: Mapped[int] = mapped_column(ForeignKey("organisations.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(16))  # "admin" | "kiosk_setup"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Site(Base):
@@ -45,6 +73,7 @@ class Site(Base):
     name: Mapped[str] = mapped_column(String(120))
     welcome_name: Mapped[str] = mapped_column(String(120), default="")
     zanda_region: Mapped[str] = mapped_column(String(4), default="au")
+    # Encrypted with the practice's master key, which the server can't unlock on its own.
     zanda_key_encrypted: Mapped[str] = mapped_column(Text, default="")
     zanda_key_hint: Mapped[str] = mapped_column(String(8), default="")
     location_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -54,9 +83,11 @@ class Site(Base):
     minutes_late: Mapped[int] = mapped_column(Integer, default=30)
     reception_flag: Mapped[str] = mapped_column(String(120), default="")
     # Also ask for the first letter of the surname (stronger match, one extra tap).
-    require_surname_initial: Mapped[bool] = mapped_column(Boolean, default=False)
+    require_surname_initial: Mapped[bool] = mapped_column(Boolean, default=True)
     # Show the clinician's name on the "Is this you?" screen (others in the room may see it).
-    show_clinician: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_clinician: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Put the client's first name and surname initial in staff notifications (else "A client").
+    notify_names: Mapped[bool] = mapped_column(Boolean, default=True)
     # False = notify-only: staff are notified but the appointment isn't changed in Zanda.
     mark_arrived: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

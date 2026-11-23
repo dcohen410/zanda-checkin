@@ -1,0 +1,9 @@
+{% extends "portal.html" %}
+{% block title %}Recovery codes{% endblock %}
+{% block content %}
+<h1>Save your recovery codes</h1>
+<p class="muted">If you lose your phone, each code works once instead of an authenticator code. Keep them somewhere safe, like your password manager. They won't be shown again.</p>
+<div class="card"><ul class="codes">{% for c in codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul></div>
+<p class="muted">Losing your password, your phone <em>and</em> these codes means your stored Zanda keys can't be recovered, even by us. You'd need to make new keys in Zanda.</p>
+<a class="btn btn-primary" href="/admin">I've saved them</a>
+{% endblock %}

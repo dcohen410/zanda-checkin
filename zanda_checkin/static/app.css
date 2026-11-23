@@ -193,3 +193,5 @@ label.check input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; acce
 .letters .key { height: 68px; font-size: 1.7rem; }
 @media (max-height: 820px) { .letters .key { height: 58px; } }
 [hidden] { display: none !important; }
+.qr svg { width: 220px; height: 220px; display: block; margin: 8px 0; }
+.codes { columns: 2; list-style: none; padding: 0; margin: 0; } .codes li { margin: 6px 0; }

@@ -45,8 +45,9 @@ Every iPad and desktop app shows in the admin portal under **Signed-in devices**
 
 - **Zanda location** and **time zone**.
 - **Check-in window**: minutes early and minutes late.
-- **Ask for surname initial**: one extra tap for a much stronger match.
-- **Show clinician name**: turn off if your waiting room is busy.
+- **Ask for surname initial** (on by default): one extra tap for a much stronger match.
+- **Show clinician name** (off by default): others in the waiting room might see it.
+- **Names in notifications** (on by default): turn off and desktop apps just say "A client has arrived for [clinician]".
 - **Mark Arrived in Zanda**: turn off for notify-only mode.
 - **Send to reception flag**: choose a Zanda appointment flag. Clients whose appointment has it still check in, but are asked to see reception afterwards.
 
@@ -55,16 +56,19 @@ Every iPad and desktop app shows in the admin portal under **Signed-in devices**
 ### Locally with Docker
 
 ```bash
+./scripts/make-env.sh                   # once: creates .env with strong secrets
 docker compose up --build
 ```
 
-Open http://localhost:8000, create an account and add a site.
+Open https://localhost. Caddy serves HTTPS with its own local certificate, so your browser will warn you the first time. Then create an account, set up two-step sign-in and add a site.
 
 To try it without a Zanda key:
 
 ```bash
 ZANDA_CHECKIN_DEMO=1 docker compose up --build
 ```
+
+In demo mode the kiosk asks for the surname initial by default. Use N for 01021990 and O for 15061985.
 
 Any API key works in demo mode. Try these dates of birth:
 - `01021990`: a normal match
@@ -76,32 +80,34 @@ Any API key works in demo mode. Try these dates of birth:
 
 The image runs anywhere that runs containers, such as Fly.io, Render, Azure Container Apps, AWS App Runner/ECS or a VPS. Pick an **Australian region** for Australian practices.
 
-- Put it behind **HTTPS**. Most platforms do this for you; otherwise use Caddy or Traefik.
+- **HTTPS is mandatory.** The app refuses to start unless `PUBLIC_URL` is `https://`. On a plain server, run `DOMAIN=checkin.example.com docker compose up -d`. The bundled Caddy gets a Let's Encrypt certificate and is the only thing exposed. On a platform with its own TLS, run just the `app` image.
 - Run **one instance**. Live notifications are broadcast in memory; see the scaling notes below.
 - Mount a persistent volume at `/data` (SQLite), or set `DATABASE_URL` to Postgres.
 
 | Variable | Purpose |
 |---|---|
 | `PUBLIC_URL` | e.g. `https://checkin.example.com`. Turns on secure cookies and HSTS. |
-| `ENCRYPTION_KEY` | Fernet key that encrypts stored Zanda API keys. **Set it and back it up**: if it's lost, every stored key is unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `ENCRYPTION_KEY` | Server-side Fernet key: an extra encryption layer over every stored key. It can't unlock a Zanda key on its own (see [SECURITY.md](SECURITY.md)). **Set it and back it up**: if it's lost, stored keys are unreadable. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `SECRET_KEY` | Signs session cookies. Any long random string. |
 | `DATABASE_URL` | Default: SQLite in `/data`. Postgres: `postgresql+psycopg://user:pass@host/db` |
-| `SIGNUP_CODE` | If set, new practices need this code to sign up (invite-only). |
+| `SIGNUP_CODE` | New practices need this code to sign up. Required in production unless `ALLOW_OPEN_SIGNUP=1`. |
+| `DOMAIN` | (docker compose) The public hostname Caddy gets a certificate for. |
 | `FORWARDED_ALLOW_IPS` | Your reverse proxy's IP, so client IPs (used for sign-in rate limits) are read correctly. |
+| `ALLOW_INSECURE_HTTP` | `1` allows plain http. **Local testing only.** |
 | `ZANDA_CHECKIN_DEMO` | `1` uses pretend Zanda data. |
 
-If `SECRET_KEY` or `ENCRYPTION_KEY` aren't set, they're generated into `/data` on first start. That's fine locally, but set them explicitly in production.
+`SECRET_KEY` and `ENCRYPTION_KEY` are **required** in production and must come from the environment or a secret store, not the data volume. Only with `ALLOW_INSECURE_HTTP=1` (local testing) are they generated into `/data`.
 
 ### Without Docker
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m zanda_checkin --port 8000
+ALLOW_INSECURE_HTTP=1 .venv/bin/python -m zanda_checkin --port 8000
 ```
 
 ## Setting up a practice
 
-1. Go to `/signup` and create the practice account.
+1. Go to `/signup`, create the practice account and set up **two-step sign-in** with an authenticator app. It's required, and you'll need the codes to sign in iPads and the desktop app.
 2. Add a site: name it, then paste the **Zanda API key**. In Zanda, the master user goes to Tools › Zanda API Key › Generate and copies the key (it's shown only once). If the practice has only one in-person location, it's picked automatically.
 3. **iPad:**
    - Open `https://your-server/checkin` in Safari, sign in and choose the site.
@@ -112,6 +118,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
    - Install it on reception and clinician computers.
    - Enter the server address, sign in, and choose the site.
    - It lives in the menu bar (Mac) or system tray (Windows), can open at login, and has a "Send a test notification" item.
+  - Client names are hidden in notifications unless "Show client names" is ticked, because notifications can appear on a locked screen.
 
 ## Desktop app
 
@@ -131,20 +138,15 @@ Installers are built by GitHub Actions. Run the **Desktop app** workflow, or pus
 
 ## Security and privacy
 
-A Zanda API key can read the whole practice, including clinical notes. Treat this service as holding health information.
+See **[SECURITY.md](SECURITY.md)** for the full picture. In short:
 
-- **API keys** are encrypted at rest (Fernet). They are never shown again after saving (only the last 4 characters) and never sent to iPads or desktop apps.
-- **Zanda access is allow-listed in code.** [`zanda.py`](zanda_checkin/zanda.py) wraps only:
-  - `GET /locations`
-  - `GET /appointment-flags`
-  - `GET /appointments`
-  - `GET /client-profiles/{id}`
-  - `PATCH /appointments/{id}` (to set Arrived)
-- **Passwords** are hashed with scrypt.
-- **Device tokens** are stored only as SHA-256 hashes and can be revoked.
-- **Sign-in** is rate-limited, forms have CSRF protection, and a strict Content-Security-Policy is set.
-- **Data kept:** practice accounts, site settings, devices, an audit log of admin actions, and a count of check-in outcomes. No client names, dates of birth or appointment details are stored. Client first names and last initials pass through only in the live notification.
-- **Before offering this to other practices**, work through your obligations under the Privacy Act 1988, including APP 8 (cross-border disclosure), APP 11 (security) and the Notifiable Data Breaches scheme. You'll also need a privacy policy and data-processing terms. Get proper legal advice; this README isn't that.
+- **Zero-access key storage.** Each practice's Zanda keys are encrypted under a practice master key that only the practice can unlock, with a password, an iPad's token or a live session. The database, the backups and the server's own secrets together can't reveal a key, provided the practice's password is strong (strength is enforced). The one limit: while a device is using the service, the key is unlocked in server memory to call Zanda. SECURITY.md explains this and the options to close it (a native iPad app, or confidential computing).
+- **HTTPS everywhere.** The app refuses to run without it. TLS goes through Caddy, with HSTS preload, Secure `__Host-`/`__Secure-` cookies and TLS-only Postgres.
+- **Two-step sign-in is required for every account**, with replay-proof codes and recovery codes. Changing a password signs the account out everywhere else.
+- **Least data.** No client names, dates of birth or appointment details are stored or logged.
+- **Allow-listed Zanda calls.** The code wraps only `GET /locations`, `GET /appointment-flags`, `GET /appointments`, `GET /client-profiles/{id}` and `PATCH /appointments/{id}`.
+- **Locked-down containers:** non-root, read-only filesystem, all capabilities dropped. Dependabot and `pip-audit` run in CI.
+- **Before offering this to other practices**, work through the Privacy Act 1988 (including APP 8, APP 11 and the Notifiable Data Breaches scheme), and get proper legal advice.
 
 ## Development
 
@@ -165,7 +167,6 @@ From a review of similar products (HotDoc, AutoMed, Jane, Cliniko add-ons, Envoy
 
 - **Before launch:**
   - Confirm with Zanda that `PATCH /appointments` (Arrived) works on production accounts.
-  - Add MFA for admin accounts.
   - Add a privacy policy and terms.
   - Sign the desktop builds.
 - **Soon:**
